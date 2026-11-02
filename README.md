@@ -513,3 +513,4 @@ This project is licensed under the **[Apache License 2.0](LICENSE)**.
 *Original GameplayFootball code by Bastiaan Konings Schuiling; build on the
 Google Research Football modernization and the contributions of the open-source
 community.*
+<!-- Teste de compilação do League-Soccer - diagnóstico 8BitDo -->
