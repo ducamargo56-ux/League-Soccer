@@ -13,6 +13,22 @@
 
 #include "environmentmanager.hpp"
 
+#include <cstdarg>
+#include <cstdio>
+
+namespace {
+void Log8BitDo(const char* fmt, ...) {
+  FILE* f = std::fopen("diagnostico_8bitdo.log", "a");
+  if (!f) return;
+  va_list args;
+  va_start(args, fmt);
+  std::vfprintf(f, fmt, args);
+  va_end(args);
+  std::fprintf(f, "\n");
+  std::fclose(f);
+}
+}  // namespace
+
 extern void AddGamepad(int deviceIndex, int gamepadID);
 extern void RemoveGamepad(int gamepadID);
 
@@ -49,7 +65,10 @@ UserEventManager::UserEventManager() {
   }
 
   // init the joy and gamecontroller subsystems!
-  SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER);
+  int initResult = SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER);
+  Log8BitDo("=== Inicio do diagnostico 8BitDo ===");
+  Log8BitDo("SDL_Init resultado=%d erro=%s", initResult, SDL_GetError());
+  Log8BitDo("SDL_NumJoysticks=%d limite=%d", SDL_NumJoysticks(), _JOYSTICK_MAX);
 
   // Load community SDL_GameControllerDB mappings if present (zlib / permissive license)
   int numMappings = SDL_GameControllerAddMappingsFromFile("data/gamecontrollerdb.txt");
@@ -58,13 +77,26 @@ UserEventManager::UserEventManager() {
            numMappings);
   }
 
-  for (int i = 0; i < SDL_NumJoysticks(); i++) {
+  const int detected = SDL_NumJoysticks();
+  for (int i = 0; i < detected && i < _JOYSTICK_MAX; i++) {
+    Log8BitDo("OPEN index=%d nome=%s instance-prevista=%d", i,
+              SDL_JoystickNameForIndex(i) ? SDL_JoystickNameForIndex(i) : "(null)",
+              static_cast<int>(SDL_JoystickGetDeviceInstanceID(i)));
     joystick[i] = SDL_JoystickOpen(i);
     if (joystick[i]) {
       joystickInstanceNow[i] = SDL_JoystickInstanceID(joystick[i]);
+      Log8BitDo("OPEN OK index=%d slot=%d instance=%d botoes=%d eixos=%d hats=%d",
+                i, i, static_cast<int>(joystickInstanceNow[i]),
+                SDL_JoystickNumButtons(joystick[i]), SDL_JoystickNumAxes(joystick[i]),
+                SDL_JoystickNumHats(joystick[i]));
       AddGamepad(i, i);
+    } else {
+      Log8BitDo("OPEN FALHOU index=%d erro=%s", i, SDL_GetError());
     }
   }
+  if (detected > _JOYSTICK_MAX)
+    Log8BitDo("AVISO: %d dispositivos excedem limite; extras ignorados",
+              detected - _JOYSTICK_MAX);
   SDL_JoystickEventState(SDL_ENABLE);
 }
 
@@ -82,7 +114,12 @@ void UserEventManager::Exit() {}
 void UserEventManager::InputSDLEvent(const SDL_Event& event) {
   switch (event.type) {
     case SDL_JOYDEVICEADDED: {
-      if (FindJoystickSlot(SDL_JoystickGetDeviceInstanceID(event.jdevice.which)) >= 0)
+      const SDL_JoystickID addedInstance =
+          SDL_JoystickGetDeviceInstanceID(event.jdevice.which);
+      const int existingSlot = FindJoystickSlot(addedInstance);
+      Log8BitDo("DEVICE ADDED index=%d instance=%d slot-existente=%d",
+                event.jdevice.which, static_cast<int>(addedInstance), existingSlot);
+      if (existingSlot >= 0)
         break;
 
       // SDL_JOYDEVICEADDED reports the *device index* for the new joystick,
@@ -90,16 +127,21 @@ void UserEventManager::InputSDLEvent(const SDL_Event& event) {
       // remember the joystick's stable instance ID there.
       printf("[userevent] Gamepad connected: %d\n", event.jdevice.which);
       SDL_Joystick* joy = SDL_JoystickOpen(event.jdevice.which);
-      if (!joy)
+      if (!joy) {
+        Log8BitDo("DEVICE ADDED OPEN FALHOU erro=%s", SDL_GetError());
         break;
+      }
       std::unique_lock<std::mutex> lock(joyButtonPressedMutex);
       int slot = FindFreeJoystickSlot();
       if (slot < 0) {
+        Log8BitDo("DEVICE ADDED sem slot livre");
         SDL_JoystickClose(joy);
         break;
       }
       joystick[slot] = joy;
       joystickInstanceNow[slot] = SDL_JoystickInstanceID(joy);
+      Log8BitDo("DEVICE ADDED OK index=%d slot=%d instance=%d",
+                event.jdevice.which, slot, static_cast<int>(joystickInstanceNow[slot]));
       for (int i = 0; i < _JOYSTICK_MAXBUTTONS; i++)
         joyButtonPressed[slot][i] = false;
       for (int i = 0; i < _JOYSTICK_MAXAXES; i++) {
@@ -123,6 +165,7 @@ void UserEventManager::InputSDLEvent(const SDL_Event& event) {
       printf("[userevent] Gamepad disconnected: %d\n", event.jdevice.which);
       std::unique_lock<std::mutex> lock(joyButtonPressedMutex);
       int slot = FindJoystickSlot(event.jdevice.which);
+      Log8BitDo("DEVICE REMOVED instance=%d slot=%d", event.jdevice.which, slot);
       if (slot < 0)
         break;
       if (joystick[slot]) {
@@ -172,11 +215,16 @@ void UserEventManager::InputSDLEvent(const SDL_Event& event) {
       int joyID = FindJoystickSlot(event.jaxis.which);
       if (joyID >= 0 && event.jaxis.axis < _JOYSTICK_MAXAXES)
         joyAxis[joyID][event.jaxis.axis] = event.jaxis.value;
+      if (event.jaxis.value > 16000 || event.jaxis.value < -16000)
+        Log8BitDo("AXIS instance=%d slot=%d axis=%u valor=%d",
+                  event.jaxis.which, joyID, event.jaxis.axis, event.jaxis.value);
       break;
     }
     case SDL_JOYHATMOTION: {
       std::unique_lock<std::mutex> lock(joyButtonPressedMutex);
       int joyID = FindJoystickSlot(event.jhat.which);
+      Log8BitDo("HAT instance=%d slot=%d hat=%u valor=%u",
+                event.jhat.which, joyID, event.jhat.hat, event.jhat.value);
       if (joyID >= 0 && event.jhat.hat == 0) {
         // Map D-pad hat states to virtual button indices (16..19):
         // Button 16: Up, 17: Right, 18: Down, 19: Left
@@ -190,6 +238,8 @@ void UserEventManager::InputSDLEvent(const SDL_Event& event) {
     case SDL_JOYBUTTONDOWN: {
       std::unique_lock<std::mutex> lock(joyButtonPressedMutex);
       int joyID = FindJoystickSlot(event.jbutton.which);
+      Log8BitDo("BUTTON DOWN instance=%d slot=%d botao=%u",
+                event.jbutton.which, joyID, event.jbutton.button);
       if (joyID >= 0 && event.jbutton.button < _JOYSTICK_MAXBUTTONS)
         joyButtonPressed[joyID][event.jbutton.button] = true;
       break;
@@ -197,6 +247,8 @@ void UserEventManager::InputSDLEvent(const SDL_Event& event) {
     case SDL_JOYBUTTONUP: {
       std::unique_lock<std::mutex> lock(joyButtonPressedMutex);
       int joyID = FindJoystickSlot(event.jbutton.which);
+      Log8BitDo("BUTTON UP instance=%d slot=%d botao=%u",
+                event.jbutton.which, joyID, event.jbutton.button);
       if (joyID >= 0 && event.jbutton.button < _JOYSTICK_MAXBUTTONS)
         joyButtonPressed[joyID][event.jbutton.button] = false;
       break;
