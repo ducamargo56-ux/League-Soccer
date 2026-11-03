@@ -462,7 +462,44 @@ jobs:
       - name: Test (Release)
         shell: pwsh
         run: ctest --test-dir build-win -C Release --output-on-failure
+        
+      
+      - name: Build 8BitDo SDL2 diagnostic
+        shell: pwsh
+        run: |
+          $root = "build-win/vcpkg_installed/x64-windows"
+          $include = Join-Path $root "include"
+          $lib = Join-Path $root "lib"
+          $source = "tools/teste_8bitdo.cpp"
+          $output = "build-win/Release/teste_8bitdo.exe"
 
+          if (!(Test-Path "$include/SDL.h")) {
+            $include = Join-Path $root "include/SDL2"
+          }
+
+          if (!(Test-Path "$include/SDL.h")) {
+            throw "SDL.h nao encontrado"
+          }
+
+          New-Item -ItemType Directory -Force "build-win/Release" | Out-Null
+
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $compiler = & $vswhere -latest -products "*" -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find "VC\Auxiliary\Build\vcvars64.bat" | Select-Object -First 1
+
+          if (!$compiler) {
+            throw "Compilador Visual Studio nao encontrado"
+          }
+
+          $command = "`"$compiler`" && cl /nologo /EHsc /MD /std:c++17 /I`"$include`" `"$source`" /Fe:`"$output`" /link /LIBPATH:`"$lib`" SDL2.lib SDL2main.lib"
+
+          cmd /c $command
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Falha ao compilar diagnostico 8BitDo"
+          }
+
+
+        
       - name: Package runnable Windows build
         shell: pwsh
         run: |
