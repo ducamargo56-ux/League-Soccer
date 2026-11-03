@@ -2,7 +2,9 @@ name: CI
 
 on:
   push:
-     branches: [ "main", "master", "diagnostico-8bitdo", "copilot/**", "claude/**", "cursor/**" ]
+     
+    branches: [ "main", "master", "diagnostico-8bitdo", "teste-sdl2-8bitdo", "copilot/**", "claude/**", "cursor/**" ]
+
   pull_request:
     branches: [ "main", "master" ]
 
