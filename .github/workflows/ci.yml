@@ -490,7 +490,7 @@ jobs:
             throw "Compilador Visual Studio nao encontrado"
           }
 
-          $command = "`"$compiler`" && cl /nologo /EHsc /MD /std:c++17 /I`"$include`" `"$source`" /Fe:`"$output`" /link /LIBPATH:`"$lib`" SDL2.lib SDL2main.lib"
+          $command = "`"$compiler`" && cl /nologo /EHsc /MD /std:c++17 /I`"$include`" `"$source`" /Fe:`"$output`" /link /LIBPATH:`"$lib`" SDL2.lib"
 
           cmd /c $command
 
@@ -509,6 +509,19 @@ jobs:
             -VcpkgRoot $env:VCPKG_ROOT `
             -Triplet $env:VCPKG_DEFAULT_TRIPLET `
             -RepoRoot $env:GITHUB_WORKSPACE
+
+      - name: Include 8BitDo diagnostic in Windows package
+        shell: pwsh
+        run: |
+          $exe = "build-win/Release/teste_8bitdo.exe"
+          $destination = "dist/windows-x64/teste_8bitdo.exe"
+          if (!(Test-Path $exe)) {
+            throw "Executavel de diagnostico nao encontrado: $exe"
+          }
+          Copy-Item $exe $destination -Force
+          if (!(Test-Path $destination)) {
+            throw "Falha ao incluir diagnostico no pacote"
+          }
 
       - name: Upload Windows release artifact
         uses: actions/upload-artifact@v7
